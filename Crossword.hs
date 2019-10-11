@@ -15,7 +15,7 @@ data Direction = Horizontal
                     | Vertical
     deriving Eq
 
--- a PlaceLetter consists of a letter and its row/column coordinates, i.e. 'A' 3 6 == the letter A in cell (3, 6).
+-- a PlacedLetter consists of a letter and its row/column coordinates, i.e. 'A' (3, 6) == the letter A in cell (3, 6).
 data PlacedLetter = PlacedLetter Char (Int, Int)
     deriving Show
 
@@ -44,7 +44,7 @@ buildFromIO input =
         build inputState
 
 build :: InputState -> IO ()       
-build (InputState [] n) = putStrLn "We could make empty puzzle for you, but that seems like a waste of time."
+build (InputState [] n) = putStrLn "We could make an empty puzzle for you, but that seems like a waste of time."
 
 build (InputState (h:t) n) = 
     do
