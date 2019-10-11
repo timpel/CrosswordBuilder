@@ -97,25 +97,25 @@ tryToPlace word (WordPlacements placed unplaced) [] n =
     (WordPlacements placed (word : unplaced))
 
 -- Go through the intersections unti we find one we can place this word at, either horizontally or vertically
-tryToPlace word (WordPlacements placedSoFar cantPlace) ((Intersection letter idx (row, col)) : t) n
+tryToPlace word wordPlacements ((Intersection letter idx (row, col)) : t) n
         | canPlace Horizontal = placeIt Horizontal
         | canPlace Vertical = placeIt Vertical
-        | otherwise = tryToPlace word (WordPlacements placedSoFar cantPlace) t n
+        | otherwise = tryToPlace word wordPlacements t n
     where
+        (WordPlacements placedSoFar cantPlace) = wordPlacements
         canPlace direction = checkPlacement placedSoFar word (startCell direction) direction n
         startCell direction = getStartCell idx (row, col) direction
         placeIt direction = (WordPlacements (addToPlaced placedSoFar (startCell direction) word direction) cantPlace)
 
 -- Checks whether placing the given word at the given starting point will conflict with any existing words
 checkPlacement :: [PlacedLetter] -> [Char] -> (Int, Int) -> Direction -> Int -> Bool
-checkPlacement placedLetters [] startCell direction n = False
-checkPlacement placedLetters [singleLetter] startCell direction n = False
 checkPlacement placedLetters word startCell direction n =
     doesTheWordFit placedLetters word startCell direction n &&
     canEachLetterBePlaced placedLetters word startCell direction n
 
 -- Add all the letters in the given word to the board
--- This makes no checks, so that this is a good placement before calling it!
+-- Word will start at the startCell and be placed in the given orientation
+-- This makes no checks, so make sure that this is a good placement before calling it!
 addToPlaced :: [PlacedLetter] -> (Int, Int) -> [Char] -> Direction -> [PlacedLetter]
 addToPlaced placedLetters cell [] direction = placedLetters   
 addToPlaced placedLetters cell (letter:restOfWord) direction =
@@ -157,11 +157,6 @@ flankingCells :: (Num a1, Num a2) => (a1, a2) -> Direction -> [(a1, a2)]
 flankingCells (row, col) Horizontal = [(row-1, col),(row+1, col)]
 flankingCells (row, col) Vertical = [(row, col-1),(row, col+1)]
 
--- Get the cell where the last letter of this word will be placed given its starting cell
-getLastCell :: Foldable t => (Int, Int) -> Direction -> t a -> (Int, Int)
-getLastCell (row, col) Horizontal word = (row, col + (length word) - 1)
-getLastCell (row, col) Vertical word = (row + (length word) - 1, col)
-
 
 
 -- BOARD GENERATION & OUTPUT
@@ -200,6 +195,11 @@ randomValidStart n word =
 getStartCell :: Num a => a -> (a, a) -> Direction -> (a, a)
 getStartCell wordIndex (row, col) Horizontal = (row, col-wordIndex)
 getStartCell wordIndex (row, col) Vertical = (row - wordIndex, col)
+
+-- Get the cell where the last letter of this word will be placed given its starting cell
+getLastCell :: Foldable t => (Int, Int) -> Direction -> t a -> (Int, Int)
+getLastCell (row, col) Horizontal word = (row, col + (length word) - 1)
+getLastCell (row, col) Vertical word = (row + (length word) - 1, col)
 
 -- Get the letter placed at the given point (or the empty character if nothing is placed there)
 getLetterFromCell :: (Int, Int) -> [PlacedLetter] -> Char
