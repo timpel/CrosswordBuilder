@@ -49,22 +49,25 @@ buildFromIO input =
 
         randomDubs <- makeRandomGen
         let initState = State (WordPlacements [] []) randomDubs n
-        let (State placedWords rndGen n) = build initState inputList
+        let (State placedWords rndGen n) = build initState inputList []
 
         printBoard (makeBoard (getPlacedLetters placedWords) n 0) n
         putStrLn("Failed to place these words: " ++ show (getUnplacedWords placedWords))
 
 
-build :: State -> [[Char]] -> State
-build state [] = state
-build state (h:t)
-    | null placedLetters = build (placeFirst state h) t
-    | otherwise = build (tryToPlace state h intersections) t
+-- Build takes a state, a list of words to place, and a list of words that were previously unplaced.
+build :: State -> [[Char]] -> [[Char]] -> State
+build state [] prevUnplaced
+    | (sort unplaced) == (sort prevUnplaced) = state
+    | otherwise = build (State (WordPlacements placedLetters []) rnd n) unplaced unplaced
+    where
+        (State (WordPlacements placedLetters unplaced) rnd n) = state
+build state (h:t) prevUnplaced
+    | null placedLetters = build (placeFirst state h) t prevUnplaced
+    | otherwise = build (tryToPlace state h intersections) t prevUnplaced
     where
         (State (WordPlacements placedLetters unplaced) rnd n) = state
         intersections = getAllIntersections h placedLetters 0
-
-
 
 -- Place the first word, horizontally, in any random place where it'll fit
 placeFirst :: State -> [Char] -> State
@@ -98,7 +101,7 @@ tryToPlace (State wordPlacements rnd n) word ((Intersection letter idx (row, col
 checkPlacement :: [PlacedLetter] -> [Char] -> (Int, Int) -> Direction -> Int -> Bool
 checkPlacement placedLetters word startCell direction n =
     doesTheWordFit placedLetters word startCell direction n &&
-    canEachLetterBePlaced placedLetters word startCell direction n
+    canEachLetterBePlaced placedLetters word startCell direction n True
 
 -- Add all the letters in the given word to the board
 -- Word will start at the startCell and be placed in the given orientation
@@ -144,9 +147,9 @@ doesTheWordFit placedLetters word startCell direction n =
     freeOrOOB (nextCell lastCell direction) placedLetters n) where
         lastCell = getLastCell startCell direction word
 
-canEachLetterBePlaced :: [PlacedLetter] -> [Char] -> (Int, Int) -> Direction -> Int -> Bool
-canEachLetterBePlaced placedLetters "" cell direction n = True
-canEachLetterBePlaced placedLetters (thisLetter:nextLetters) cell direction n =
+canEachLetterBePlaced :: [PlacedLetter] -> [Char] -> (Int, Int) -> Direction -> Int -> Bool -> Bool
+canEachLetterBePlaced placedLetters "" cell direction n _ = True
+canEachLetterBePlaced placedLetters (thisLetter:nextLetters) cell direction n wasLastCellEmpty =
     {-- A letter can be placed in a cell only if:
         1) The cell in the bounds of the board
         2) The cell is either 
@@ -154,8 +157,8 @@ canEachLetterBePlaced placedLetters (thisLetter:nextLetters) cell direction n =
             ii) OR the cell is not empty but its letter is the same as the given letter --}
     (inBounds cell n) &&
     ((isEmpty cell placedLetters && all (\ cell -> freeOrOOB cell placedLetters n) (flankingCells cell direction))
-        || (getLetterFromCell cell placedLetters) == thisLetter) &&
-    canEachLetterBePlaced placedLetters nextLetters (nextCell cell direction) direction n
+        || ((getLetterFromCell cell placedLetters) == thisLetter) && wasLastCellEmpty) &&
+    canEachLetterBePlaced placedLetters nextLetters (nextCell cell direction) direction n (isEmpty cell placedLetters)
 
 -- Gets the cells above & below this one for Horizontal words, or to the left & right for Vertical words
 flankingCells :: (Num a1, Num a2) => (a1, a2) -> Direction -> [(a1, a2)]
@@ -184,6 +187,7 @@ printBoard boardString n =
         printBoard (drop (2*n) boardString) n
 
 -- HELPER/UTIL FUNCTIONS
+
 -- get an infinite (lazy) list of random doubles (adapted from Prof. Poole's example)
 makeRandomGen = 
     do

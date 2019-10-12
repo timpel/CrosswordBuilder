@@ -3,6 +3,8 @@ module CrosswordInput where
 import System.IO
 import Data.Char
 import Data.List
+import Text.Read
+import Data.Maybe
 
 --OUR MODULES
 import CrosswordConstants
@@ -11,6 +13,8 @@ import CrosswordConstants
 data InputState = InputState [[Char]] Int
 
 -- INPUT VALIDATION CHECKS
+nNotNum Nothing = True
+nNotNum _ = False 
 invalidBoardSize n = (n < minBoardSize) || (n > maxBoardSize)
 validLength n word = (len <= n && len >= minWordLength) where len = length word
 validChars [] = True
@@ -38,14 +42,23 @@ getUserInput =
         boardSize <- getLine
 
         --TODO: Check that this is a number ourselves - right now non numbers just crash
-        let n = (read boardSize :: Int)
-        if invalidBoardSize n
+        let n = (readMaybe boardSize) :: Maybe Int
+        
+
+        if nNotNum n
             then
                 do
-                    putStrLn ("Invalid size, please choose a board size from "++ show minBoardSize ++" to " ++ show maxBoardSize ++".")
+                    putStrLn ("Please enter a valid integer")
                     getUserInput
             else
-                getWords n []
+                if invalidBoardSize (fromMaybe (-1) n)
+                    then
+                        do
+                            putStrLn ("Invalid size, please choose a board size from "++ show minBoardSize ++" to " ++ show maxBoardSize ++".")
+                            getUserInput
+                    else
+                        getWords (fromMaybe (-1) n) []
+                        
 
 
 getWords :: Int -> [[Char]] -> IO InputState
