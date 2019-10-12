@@ -12,7 +12,7 @@ import CrosswordConstants
 -- DATA TYPES AND GETTERS
 
 -- The State contains all currently placed/unplaced words, an infinite list of random doubles, and the size of the board.
-data State = State WordPlacements [Double] Int
+data State = State [PlacedLetter] [[Char]] [Double] Int
 
 -- Direction of a word on the board can be horizontal or vertical
 data Direction = Horizontal
@@ -24,8 +24,8 @@ data PlacedLetter = PlacedLetter Char (Int, Int)
     deriving Show
 
 -- WordPlacements consists of a list of placed letters and a list of words that couldn't be placed
-data WordPlacements = WordPlacements [PlacedLetter] [[Char]]
-    deriving Show
+-- data WordPlacements = WordPlacements [PlacedLetter] [[Char]]
+--     deriving Show
 
 -- an Intersection is a letter, its index in the word being placed, and an x-y pair of coordinates that it intersects
 data Intersection = Intersection Char Int (Int, Int)
@@ -48,31 +48,31 @@ buildFromIO input =
         putStrLn ("Building a puzzle out of " ++ show inputList)
 
         randomDubs <- makeRandomGen
-        let initState = State (WordPlacements [] []) randomDubs n
-        let (State placedWords rndGen n) = build initState inputList []
+        let initState = State [] [] randomDubs n
+        let (State placedLetters unplacedWords rndDoubles n) = build initState inputList []
 
-        printBoard (makeBoard (getPlacedLetters placedWords) n 0) n
-        putStrLn("Failed to place these words: " ++ show (getUnplacedWords placedWords))
+        printBoard (makeBoard placedLetters n 0) n
+        putStrLn("Failed to place these words: " ++ show unplacedWords)
 
 
 -- Build takes a state, a list of words to place, and a list of words that were previously unplaced.
 build :: State -> [[Char]] -> [[Char]] -> State
 build state [] prevUnplaced
     | (sort unplaced) == (sort prevUnplaced) = state
-    | otherwise = build (State (WordPlacements placedLetters []) rnd n) unplaced unplaced
+    | otherwise = build (State placedLetters [] rnd n) unplaced unplaced
     where
-        (State (WordPlacements placedLetters unplaced) rnd n) = state
+        (State placedLetters unplaced rnd n) = state
 build state (h:t) prevUnplaced
     | null placedLetters = build (placeFirst state h) t prevUnplaced
     | otherwise = build (tryToPlace state h intersections) t prevUnplaced
     where
-        (State (WordPlacements placedLetters unplaced) rnd n) = state
-        intersections = getAllIntersections h placedLetters 0
+        (State placedLetters unplaced rnd n) = state
+        intersections = randomizedList (getAllIntersections h placedLetters 0) rnd
 
 -- Place the first word, horizontally, in any random place where it'll fit
 placeFirst :: State -> [Char] -> State
-placeFirst (State wordPlacements rnd n) word =
-    (State (WordPlacements newLetterPlacement []) newRandList n)
+placeFirst (State placedLetters unplacedWords rnd n) word =
+    (State newLetterPlacement [] newRandList n)
     where
         (rand1:rand2:newRandList) = rnd
         randomValidIdx rndDouble str = randIntFromDouble 0 (n - (length str)) rndDouble
@@ -83,19 +83,18 @@ placeFirst (State wordPlacements rnd n) word =
 
 tryToPlace :: State -> [Char] -> [Intersection] -> State
 -- if there are no intersections to work with, add the word to the Unplaced Words list
-tryToPlace (State (WordPlacements placedLetters unplaced) rnd n) word [] =
-    (State (WordPlacements placedLetters (word : unplaced)) rnd n)
+tryToPlace (State placedLetters unplaced rnd n) word [] =
+    (State placedLetters (word : unplaced) rnd n)
 
 -- Go through the intersections unti we find one we can place this word at, either horizontally or vertically
-tryToPlace (State wordPlacements rnd n) word ((Intersection letter idx (row, col)) : t)
-        | canPlace Horizontal = (State (placeIt Horizontal) rnd n)
-        | canPlace Vertical = (State (placeIt Vertical) rnd n)
-        | otherwise = tryToPlace (State wordPlacements rnd n) word t
+tryToPlace (State placedLetters unplacedWords rnd n) word ((Intersection letter idx (row, col)) : t)
+        | canPlace Horizontal = (State (placeIt Horizontal) unplacedWords rnd n)
+        | canPlace Vertical = (State (placeIt Vertical) unplacedWords rnd n)
+        | otherwise = tryToPlace (State placedLetters unplacedWords rnd n) word t
     where
-        (WordPlacements placedSoFar cantPlace) = wordPlacements
-        canPlace direction = checkPlacement placedSoFar word (startCell direction) direction n
+        canPlace direction = checkPlacement placedLetters word (startCell direction) direction n
         startCell direction = getStartCell idx (row, col) direction
-        placeIt direction = (WordPlacements (addToPlaced placedSoFar (startCell direction) word direction) cantPlace)
+        placeIt direction = addToPlaced placedLetters (startCell direction) word direction
 
 -- Checks whether placing the given word at the given starting point will conflict with any existing words
 checkPlacement :: [PlacedLetter] -> [Char] -> (Int, Int) -> Direction -> Int -> Bool
@@ -107,7 +106,7 @@ checkPlacement placedLetters word startCell direction n =
 -- Word will start at the startCell and be placed in the given orientation
 -- This makes no checks, so make sure that this is a good placement before calling it!
 addToPlaced :: [PlacedLetter] -> (Int, Int) -> [Char] -> Direction -> [PlacedLetter]
-addToPlaced placedLetters cell [] direction = placedLetters   
+addToPlaced placedLetters cell [] direction = placedLetters
 addToPlaced placedLetters cell (letter:restOfWord) direction =
     (PlacedLetter letter cell) : addToPlaced placedLetters
                                             (nextCell cell direction)
@@ -126,7 +125,7 @@ getAllIntersections (h:t) placedWords idx =
 
 -- Get the coordinates of every cell that currently contains the given letter
 getLetterIntersections :: Char -> Int -> [PlacedLetter] -> [Intersection]
-getLetterIntersections c idx placedLetters = 
+getLetterIntersections c idx placedLetters =
     map (makeIntersection c idx)
         (filter (\ filledCell -> (getLetter filledCell) == c) placedLetters)
     where
@@ -152,7 +151,7 @@ canEachLetterBePlaced placedLetters "" cell direction n _ = True
 canEachLetterBePlaced placedLetters (thisLetter:nextLetters) cell direction n wasLastCellEmpty =
     {-- A letter can be placed in a cell only if:
         1) The cell in the bounds of the board
-        2) The cell is either 
+        2) The cell is either
             i) empty AND the "flanking cells" (aka above & below for a horizontal word, left & right for a vertical one) are empty
             ii) OR the cell is not empty but its letter is the same as the given letter --}
     (inBounds cell n) &&
@@ -171,17 +170,17 @@ flankingCells (row, col) Vertical = [(row, col-1),(row, col+1)]
 
 -- Makes formatted string of size n*n filled with either placed letters or 'empty cell' characters
 makeBoard :: [PlacedLetter] -> Int -> Int -> [Char]
-makeBoard placedLetters n i 
+makeBoard placedLetters n i
     | i >= totalCells = []
     | otherwise = space : letter : makeBoard placedLetters n (i+1)
-    where 
+    where
         totalCells = n*n
         (space, letter) = (' ', (getLetterFromCell (i `div` n, i `mod` n) placedLetters))
 
 -- Prints out the board, one row of size n at a time
 printBoard :: [Char] -> Int -> IO ()
 printBoard "" n = putStrLn("")
-printBoard boardString n = 
+printBoard boardString n =
     do
         putStrLn (take (2*n) boardString)
         printBoard (drop (2*n) boardString) n
@@ -189,7 +188,7 @@ printBoard boardString n =
 -- HELPER/UTIL FUNCTIONS
 
 -- get an infinite (lazy) list of random doubles (adapted from Prof. Poole's example)
-makeRandomGen = 
+makeRandomGen =
     do
         rg <- newStdGen
         return (randoms rg :: [Double])
@@ -200,6 +199,17 @@ randIntFromDouble loInt hiInt rndDouble =
     where
         hi = fromIntegral hiInt
         lo = fromIntegral loInt
+
+-- Needs infinite list of doubles
+randomizedList :: [a] -> [Double] -> [a]
+randomizedList [] _ = []
+randomizedList [e] _ = [e]
+randomizedList (h:t) (d:rd) = randomInsert h (randomizedList t rd) d
+
+randomInsert :: a -> [a] -> Double -> [a]
+randomInsert e [] d = [e]
+randomInsert e l d = before ++ [e] ++ after
+  where (before, after) = splitAt (randIntFromDouble 0 (length l) d) l
 
 -- Given a point, its index in a word, the word itself, and the direction of the word,
 -- returns the point where the first letter of that word should be
@@ -246,12 +256,6 @@ isEmpty cell placedLetters = not (any (==cell) (map letterCoordinates placedLett
 
 
 -- GETTERS FOR CUSTOM DATA TYPES
-
-getPlacedLetters :: WordPlacements -> [PlacedLetter]
-getPlacedLetters (WordPlacements letters _) = letters
-
-getUnplacedWords :: WordPlacements -> [[Char]]
-getUnplacedWords (WordPlacements letters unplaced) = unplaced
 
 letterCoordinates :: PlacedLetter -> (Int, Int)
 letterCoordinates (PlacedLetter letter cell) = cell
