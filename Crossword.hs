@@ -27,7 +27,7 @@ data WordPlacements = WordPlacements [PlacedLetter] [[Char]]
 data Intersection = Intersection Char Int (Int, Int)
     deriving Show
 
-data RandomGenerator = RandomGenerator [Double] Double
+data State = State WordPlacements [Double] Int
 
 
 -- ENTRY POINT!
@@ -42,42 +42,50 @@ start = buildFromIO getUserInput
 buildFromIO :: IO InputState -> IO ()
 buildFromIO input =
     do
+        (InputState inputList n) <- input
+        putStrLn ("Building a puzzle out of " ++ show inputList)
+
         randomGen <- makeRandomGen
-        (InputState (h:t) n) <- input
-        putStrLn ("Building a puzzle out of " ++ show (h:t))
-        let placedWords = build (h:t) n randomList
+        let initState = State (WordPlacements [] []) randomGen n
+        let (State placedWords rndGen n) = build initState inputList
+
         printBoard (makeBoard (getPlacedLetters placedWords) n 0) n
         putStrLn("Failed to place these words: " ++ show (getUnplacedWords placedWords))
 
 
-build :: [[Char]] -> Int -> [Double] -> WordPlacements
-build [] n randomList = WordPlacements [] []
-build (h:t) n randomList = foldl (\ placedWords word -> (tryToPlace word placedWords (getAllIntersections word (getPlacedLetters placedWords) 0) n)) (placeFirst n h) t
+-- build :: [[Char]] -> Int -> [Double] -> WordPlacements
+build state [] = state
+build state (h:t)
+    | null placedLetters = build (placeFirst state h) t
+    | otherwise = build (tryToPlace state h intersections) t
+    where
+        (State (WordPlacements placedLetters unplaced) rnd n) = state
+        intersections = getAllIntersections h placedLetters 0
 
 
 
 -- Place the first word, horizontally, in any random place where it'll fit
 --placeFirst :: Int -> [Char] -> WordPlacements
-placeFirst n word =
-    return (WordPlacements (addToPlaced [] (randomValidIdx "", randomValidIdx word) word Horizontal) [])
+placeFirst (State wordPlacements rndGen n) word =
+    (State (WordPlacements newLetterPlacement []) newRandList n)
     where
-        randomValidIdx str = randomInt 0 (n - (length str)) randomList
+        (rand1:rand2:newRandList) = rndGen
+        randomValidIdx rndDouble str = randIntFromDouble 0 (n - (length str)) rndDouble
+        newLetterPlacement = (addToPlaced [] (randomValidIdx rand1 "", randomValidIdx rand2 word) word Horizontal)
 
-
-randomInt lo hi randomList = 
 
 -- TESTING INTERSECTIONS & PLACING WORDS
 
 --tryToPlace ::  [Char] -> WordPlacements -> [Intersection] -> Int -> WordPlacements
 -- if there are no intersections to work with, add the word to the Unplaced Words list
-tryToPlace word (WordPlacements placed unplaced) [] n =
-    (WordPlacements placed (word : unplaced))
+tryToPlace (State (WordPlacements placedLetters unplaced) rnd n) word [] =
+    (State (WordPlacements placedLetters (word : unplaced)) rnd n)
 
 -- Go through the intersections unti we find one we can place this word at, either horizontally or vertically
-tryToPlace word wordPlacements ((Intersection letter idx (row, col)) : t) n
-        | canPlace Horizontal = placeIt Horizontal
-        | canPlace Vertical = placeIt Vertical
-        | otherwise = tryToPlace word wordPlacements t n
+tryToPlace (State wordPlacements rnd n) word ((Intersection letter idx (row, col)) : t)
+        | canPlace Horizontal = (State (placeIt Horizontal) rnd n)
+        | canPlace Vertical = (State (placeIt Vertical) rnd n)
+        | otherwise = tryToPlace (State wordPlacements rnd n) word t
     where
         (WordPlacements placedSoFar cantPlace) = wordPlacements
         canPlace direction = checkPlacement placedSoFar word (startCell direction) direction n
@@ -172,17 +180,19 @@ printBoard boardString n =
         putStrLn (take (2*n) boardString)
         printBoard (drop (2*n) boardString) n
 
-
-
 -- HELPER/UTIL FUNCTIONS
 -- get a random number generator (adapted from Prof. Poole's example)
 makeRandomGen = 
     do
         rg <- newStdGen
-        let (firstDouble:restDoubles) = randoms rg :: [Double]
-        return RandomGenerator restDoubles firstDouble
+        return (randoms rg :: [Double])
 
-
+randIntFromDouble :: Int -> Int -> Double -> Int
+randIntFromDouble loInt hiInt rndDouble =
+    floor ((hi-lo) * rndDouble + lo)
+    where
+        hi = fromIntegral hiInt
+        lo = fromIntegral loInt
 
 -- returns a random number such that starting the word at that row/column won't sent it over the edge of the board
 randomValidStart :: Foldable t => Int -> t a -> IO Int
