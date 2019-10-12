@@ -44,30 +44,57 @@ start = buildFromIO getUserInput
 buildFromIO :: IO InputState -> IO ()
 buildFromIO input =
     do
-        (InputState inputList n) <- input
+        (InputState inputList n timesToTry) <- input
         putStrLn ("Building a puzzle out of " ++ show inputList)
 
         randomDubs <- makeRandomGen
         let initState = State [] [] randomDubs n
-        let (State placedLetters unplacedWords rndDoubles n) = build initState inputList []
+        let prevState = State [] inputList randomDubs n
+        let (State placedLetters unplacedWords rndDoubles n) = build initState inputList [] prevState inputList timesToTry
 
         printBoard (makeBoard placedLetters n 0) n
         putStrLn("Failed to place these words: " ++ show unplacedWords)
 
 
--- Build takes a state, a list of words to place, and a list of words that were previously unplaced.
-build :: State -> [[Char]] -> [[Char]] -> State
-build state [] prevUnplaced
-    | (sort unplaced) == (sort prevUnplaced) = state
-    | otherwise = build (State placedLetters [] rnd n) unplaced unplaced
+{- Build takes (in order):
+        - The current state of the board
+        - A list of words left to place for this build
+        - A list of words that couldn't be placed in previous attempts of this build
+        - The best state seen so far (across all previous builds)
+        - The full list of words input that we would like to place
+        - The numbers of builds left to try
+    
+    It returns either the bestStateSoFar or the state produced in this build attempt -- whichever has fewer unplaced words.
+-}
+build :: State -> [[Char]] -> [[Char]] -> State -> [[Char]] -> Int -> State
+build state [] prevUnplaced bestStateSoFar initialList toTry
+    | unplaced == [] = state
+    | (sort unplaced) == (sort prevUnplaced) =
+        if (toTry == 0)
+            then
+                newBestState
+            else
+                build (State [] [] rnd n) initialList [] newBestState initialList (toTry - 1)
+    | otherwise = build (State placedLetters [] rnd n) unplaced unplaced bestStateSoFar initialList toTry
     where
+        newBestState = bestOf state bestStateSoFar
         (State placedLetters unplaced rnd n) = state
-build state (h:t) prevUnplaced
-    | null placedLetters = build (placeFirst state h) t prevUnplaced
-    | otherwise = build (tryToPlace state h intersections) t prevUnplaced
+build state (h:t) prevUnplaced bestStateSoFar initialList toTry
+    | null placedLetters = build (placeFirst state h) t prevUnplaced bestStateSoFar initialList toTry
+    | otherwise = build (tryToPlace state h intersections) t prevUnplaced bestStateSoFar initialList toTry
     where
+
         (State placedLetters unplaced rnd n) = state
         intersections = randomizedList (getAllIntersections h placedLetters 0) rnd
+
+bestOf state1 state2 =
+    if ((length unplacedWords1) >= (length unplacedWords2))
+        then state2
+        else state1
+    where
+        (State _ unplacedWords1 _ _) = state1
+        (State _ unplacedWords2 _ _) = state2
+
 
 -- Place the first word, horizontally, in any random place where it'll fit
 placeFirst :: State -> [Char] -> State
