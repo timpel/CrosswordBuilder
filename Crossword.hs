@@ -4,6 +4,7 @@ import System.IO
 import System.Random
 import Data.Char
 import Data.List
+import Data.List.Split
 
 -- OUR MODULES
 import CrosswordInput
@@ -23,10 +24,6 @@ data Direction = Horizontal
 data PlacedLetter = PlacedLetter Char (Int, Int)
     deriving Show
 
--- WordPlacements consists of a list of placed letters and a list of words that couldn't be placed
--- data WordPlacements = WordPlacements [PlacedLetter] [[Char]]
---     deriving Show
-
 -- an Intersection is a letter, its index in the word being placed, and an x-y pair of coordinates that it intersects
 data Intersection = Intersection Char Int (Int, Int)
     deriving Show
@@ -36,6 +33,26 @@ data Intersection = Intersection Char Int (Int, Int)
 start :: IO ()
 start = buildFromIO getUserInput
 
+startFromFile :: [Char] -> Int -> Int -> IO ()
+startFromFile fileName boardSize timesToTry =
+    do
+        file <- readFile fileName
+        let splitFile = splitOneOf "\n,;:.\t" (filter (/= ' ') file)
+        let rawInputList = map (map toUpper) (filter (/= "") splitFile)
+        let inputList = filter (validWord boardSize) rawInputList
+        let invalidWords = rawInputList \\ inputList
+
+        printInvalid invalidWords
+        
+        putStrLn ("Building a puzzle out of " ++ show inputList)
+
+        randomDubs <- makeRandomGen
+        let initState = State [] [] randomDubs boardSize
+        let prevState = State [] inputList randomDubs boardSize
+        let (State placedLetters unplacedWords rndDoubles boardSize) = build initState inputList [] prevState inputList timesToTry
+
+        printBoard (makeBoard placedLetters boardSize 0) boardSize
+        putStrLn("Failed to place these words: " ++ show unplacedWords)
 
 
 -- BUILDING THE CROSSWORD
@@ -44,15 +61,15 @@ start = buildFromIO getUserInput
 buildFromIO :: IO InputState -> IO ()
 buildFromIO input =
     do
-        (InputState inputList n timesToTry) <- input
+        (InputState inputList boardSize timesToTry) <- input
         putStrLn ("Building a puzzle out of " ++ show inputList)
 
         randomDubs <- makeRandomGen
-        let initState = State [] [] randomDubs n
-        let prevState = State [] inputList randomDubs n
-        let (State placedLetters unplacedWords rndDoubles n) = build initState inputList [] prevState inputList timesToTry
+        let initState = State [] [] randomDubs boardSize
+        let prevState = State [] inputList randomDubs boardSize
+        let (State placedLetters unplacedWords rndDoubles boardSize) = build initState inputList [] prevState inputList timesToTry
 
-        printBoard (makeBoard placedLetters n 0) n
+        printBoard (makeBoard placedLetters boardSize 0) boardSize
         putStrLn("Failed to place these words: " ++ show unplacedWords)
 
 
@@ -238,6 +255,23 @@ randomInsert e [] d = [e]
 randomInsert e l d = before ++ [e] ++ after
   where (before, after) = splitAt (randIntFromDouble 0 (length l) d) l
 
+
+-- check if a given word is of valid length and has all valid characters
+validWord :: Int -> [Char] -> Bool
+validWord boardSize word = (validLength boardSize word) && (validChars word)
+
+-- print all the words in the list, with messages for the user
+printInvalid :: (Foldable t, Show (t a)) => t a -> IO ()
+printInvalid invalidWords = 
+    if (not (null invalidWords)) 
+        then
+            do
+                putStrLn ("The following words are invalid and won't be placed: " ++ show invalidWords)
+        else
+            do
+                putStrLn ("Input file is valid - well done!")
+                
+
 -- Given a point, its index in a word, the word itself, and the direction of the word,
 -- returns the point where the first letter of that word should be
 getStartCell :: Num a => a -> (a, a) -> Direction -> (a, a)
@@ -279,6 +313,8 @@ freeOrOOB cell placedLetters n = (not (inBounds cell n)) || (isEmpty cell placed
 -- Checks if no letter has been placed has been placed in this cell yet
 isEmpty :: (Int, Int) -> [PlacedLetter] -> Bool
 isEmpty cell placedLetters = not (any (==cell) (map letterCoordinates placedLetters))
+
+
 
 
 

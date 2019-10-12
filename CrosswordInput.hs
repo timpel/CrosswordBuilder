@@ -91,7 +91,7 @@ getWords boardSize attempts words =
         word <- getLine
         if (word == doneLoading)
             then
-                return (InputState words boardSize attempts)
+                return (InputState (sortBy compareLength words) boardSize attempts)
 
         else if not (validLength boardSize word)
             then
@@ -105,4 +105,4 @@ getWords boardSize attempts words =
                     putStrLn("\"" ++word++ "\" is not a valid word (only letters a-z are allowed)")
                     getWords boardSize attempts words
         
-        else getWords boardSize attempts (sortBy compareLength ((map toUpper word):words))
+        else getWords boardSize attempts ((map toUpper word):words)
