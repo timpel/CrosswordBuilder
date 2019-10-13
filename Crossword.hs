@@ -10,29 +10,53 @@ import Data.List.Split
 import CrosswordInput
 import CrosswordConstants
 
--- DATA TYPES AND GETTERS
+-- DATA TYPES
 
--- The State contains all currently placed/unplaced words, an infinite list of random doubles, and the size of the board.
+{- The State of the Crossword. Contains (in order):
+    - A list of the current PlacedLetters on the board.
+    - A list of unplaced words.
+    - An infinite list of random doubles.
+    - The size of the board (an n x n board).
+-}
 data State = State [PlacedLetter] [[Char]] [Double] Int
 
--- Direction of a word on the board can be horizontal or vertical
+-- The direction of a word on the board. Can be horizontal or vertical.
 data Direction = Horizontal
                 | Vertical
     deriving Eq
 
--- a PlacedLetter consists of a letter and its row/column coordinates, i.e. 'A' (3, 6) == the letter A in cell (3, 6).
+{- Represents a letter placed on the board. Contains:
+    - The letter.
+    - A pair of Ints representing x-y board coordinates.
+    - i.e. PlacedLetter 'A' (3, 6) represents the letter A in cell (3, 6).
+-}
 data PlacedLetter = PlacedLetter Char (Int, Int)
     deriving Show
 
--- an Intersection is a letter, its index in the word being placed, and an x-y pair of coordinates that it intersects
+{- An intersection represents a potential placement of a letter in a word on the board. Contains:
+    - The letter.
+    - The index of the letter in the word being placed.
+    - A pair of Ints representing x-y board coordinates for the placement location.
+-}
 data Intersection = Intersection Char Int (Int, Int)
     deriving Show
 
 
--- ENTRY POINT!
+-- ENTRY POINTS
+
+{-
+Calling start will prompt the user for necessary board inputs (board size,
+number of build attempts, and a list of words), then build the crossword.
+-}
 start :: IO ()
 start = buildFromIO getUserInput
 
+{-
+An alternative entry point, called using the format: startFromFile "inputfilename" n m, where:
+  - "inputfilename" is the name of a file containing a list of words separated by tabs, commas, and/or newlines.
+  - n is the board size.
+  - m is the number of build attempts to make.
+-}
 startFromFile :: [Char] -> Int -> Int -> IO ()
 startFromFile fileName boardSize timesToTry =
     do
@@ -43,7 +67,7 @@ startFromFile fileName boardSize timesToTry =
         let invalidWords = rawInputList \\ inputList
 
         printInvalid invalidWords
-        
+
         putStrLn ("Building a puzzle out of " ++ show inputList)
 
         randomDubs <- makeRandomGen
@@ -80,7 +104,7 @@ buildFromIO input =
         - The best state seen so far (across all previous builds)
         - The full list of words input that we would like to place
         - The numbers of builds left to try
-    
+
     It returns either the bestStateSoFar or the state produced in this build attempt -- whichever has fewer unplaced words.
 -}
 build :: State -> [[Char]] -> [[Char]] -> State -> [[Char]] -> Int -> State
@@ -100,7 +124,6 @@ build state (h:t) prevUnplaced bestStateSoFar initialList toTry
     | null placedLetters = build (placeFirst state h) t prevUnplaced bestStateSoFar initialList toTry
     | otherwise = build (tryToPlace state h intersections) t prevUnplaced bestStateSoFar initialList toTry
     where
-
         (State placedLetters unplaced rnd n) = state
         intersections = randomizedList (getAllIntersections h placedLetters 0) rnd
 
@@ -119,7 +142,7 @@ placeFirst (State placedLetters unplacedWords rnd n) word =
     (State newLetterPlacement [] newRandList n)
     where
         (rand1:rand2:newRandList) = rnd
-        randomValidIdx rndDouble str = randIntFromDouble 0 (n - (length str)) rndDouble
+        randomValidIdx rndDouble str = randIntFromDouble 0 (n - (length str) + 1) rndDouble
         newLetterPlacement = (addToPlaced [] (randomValidIdx rand1 "", randomValidIdx rand2 word) word Horizontal)
 
 
@@ -130,7 +153,7 @@ tryToPlace :: State -> [Char] -> [Intersection] -> State
 tryToPlace (State placedLetters unplaced rnd n) word [] =
     (State placedLetters (word : unplaced) rnd n)
 
--- Go through the intersections unti we find one we can place this word at, either horizontally or vertically
+-- Go through the intersections until we find one we can place this word at, either horizontally or vertically
 tryToPlace (State placedLetters unplacedWords rnd n) word ((Intersection letter idx (row, col)) : t)
         | canPlace Horizontal = (State (placeIt Horizontal) unplacedWords rnd n)
         | canPlace Vertical = (State (placeIt Vertical) unplacedWords rnd n)
@@ -237,6 +260,7 @@ makeRandomGen =
         rg <- newStdGen
         return (randoms rg :: [Double])
 
+-- Range includes loInt but excludes hiInt
 randIntFromDouble :: Int -> Int -> Double -> Int
 randIntFromDouble loInt hiInt rndDouble =
     floor ((hi-lo) * rndDouble + lo)
@@ -247,13 +271,12 @@ randIntFromDouble loInt hiInt rndDouble =
 -- Needs infinite list of doubles
 randomizedList :: [a] -> [Double] -> [a]
 randomizedList [] _ = []
-randomizedList [e] _ = [e]
 randomizedList (h:t) (d:rd) = randomInsert h (randomizedList t rd) d
 
 randomInsert :: a -> [a] -> Double -> [a]
 randomInsert e [] d = [e]
 randomInsert e l d = before ++ [e] ++ after
-  where (before, after) = splitAt (randIntFromDouble 0 (length l) d) l
+  where (before, after) = splitAt (randIntFromDouble 0 ((length l) + 1) d) l
 
 
 -- check if a given word is of valid length and has all valid characters
@@ -262,15 +285,15 @@ validWord boardSize word = (validLength boardSize word) && (validChars word)
 
 -- print all the words in the list, with messages for the user
 printInvalid :: (Foldable t, Show (t a)) => t a -> IO ()
-printInvalid invalidWords = 
-    if (not (null invalidWords)) 
+printInvalid invalidWords =
+    if (not (null invalidWords))
         then
             do
                 putStrLn ("The following words are invalid and won't be placed: " ++ show invalidWords)
         else
             do
                 putStrLn ("Input file is valid - well done!")
-                
+
 
 -- Given a point, its index in a word, the word itself, and the direction of the word,
 -- returns the point where the first letter of that word should be
