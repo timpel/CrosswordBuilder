@@ -14,28 +14,29 @@ import CrosswordConstants
 -- DATA TYPES AND GETTERS
 
 -- The State contains all currently placed/unplaced words, an infinite list of random doubles, and the size of the board.
-data State = State LetterMap [[Char]] [Double] Int
-
-data LetterMap = LetterMap (Map.Map (Int, Int) Char)
+data State = State 
+                (Map.Map (Int, Int) Char) -- Map of (x,y) coordinates -> the letter in that cell
+                [[Char]]                  -- List of words that we haven't been able to place yet
+                [Double]                  -- Infinite list of random doubles 
+                Int                       -- size of the board
+                Int                       -- Builds attempted in order to reach this state
 
 -- Direction of a word on the board can be horizontal or vertical
 data Direction = Horizontal
                 | Vertical
     deriving Eq
 
--- a PlacedLetter consists of a letter and its row/column coordinates, i.e. 'A' (3, 6) == the letter A in cell (3, 6).
--- data PlacedLetter = PlacedLetter Char (Int, Int)
---    deriving Show
-
 -- an Intersection is a letter, its index in the word being placed, and an x-y pair of coordinates that it intersects
 data Intersection = Intersection Char Int (Int, Int)
     deriving Show
 
 
--- ENTRY POINT!
+-- ENTRY POINT FOR MANUAL INPUT
 start :: IO ()
 start = buildFromIO getUserInput
 
+-- ENTRY POINT FOR FILE INPUT
+-- Usage: startFromFile fileName boardSize numberOfAttempts
 startFromFile :: [Char] -> Int -> Int -> IO ()
 startFromFile fileName boardSize timesToTry =
     do
@@ -56,13 +57,15 @@ startFromFile fileName boardSize timesToTry =
             putStrLn ("Building a puzzle out of " ++ show inputList)
 
             randomDubs <- makeRandomGen
-            let initState = State (LetterMap Map.empty) [] randomDubs boardSize
-            let prevState = State (LetterMap Map.empty) inputList randomDubs boardSize
-            let (State letterMap unplacedWords rndDoubles boardSize) = build initState inputList [] prevState inputList timesToTry
+            let initState = State Map.empty [] randomDubs boardSize 1
+            let prevState = State Map.empty inputList randomDubs boardSize 1
+            let (State letterMap unplacedWords rndDoubles boardSize buildsAttempted) = build initState inputList [] prevState inputList timesToTry 1
 
             printBoard (makeBoard letterMap boardSize 0) boardSize
-            putStrLn("Failed to place these words: " ++ show unplacedWords)
+            putStrLn("Failed to place " ++ show (length unplacedWords) ++ " words: " ++ show unplacedWords)
 
+            let totalBuildsRun = if (length unplacedWords) == 0 then buildsAttempted else timesToTry
+            putStrLn("This was build #" ++ show buildsAttempted ++ " out of " ++ show totalBuildsRun ++ " total builds.")
 
 -- BUILDING THE CROSSWORD
 
@@ -74,12 +77,15 @@ buildFromIO input =
         putStrLn ("Building a puzzle out of " ++ show inputList)
 
         randomDubs <- makeRandomGen
-        let initState = State (LetterMap Map.empty) [] randomDubs boardSize
-        let prevState = State (LetterMap Map.empty) inputList randomDubs boardSize
-        let (State letterMap unplacedWords rndDoubles boardSize) = build initState inputList [] prevState inputList timesToTry
+        let initState = State Map.empty [] randomDubs boardSize 1
+        let prevState = State Map.empty inputList randomDubs boardSize 1
+        let (State letterMap unplacedWords rndDoubles boardSize buildsAttempted) = build initState inputList [] prevState inputList timesToTry 1
 
         printBoard (makeBoard letterMap boardSize 0) boardSize
-        putStrLn("Failed to place these words: " ++ show unplacedWords)
+        putStrLn("Failed to place " ++ show (length unplacedWords) ++ " words: " ++ show unplacedWords)
+
+        let totalBuildsRun = if (length unplacedWords) == 0 then buildsAttempted else timesToTry
+        putStrLn("This was build #" ++ show buildsAttempted ++ " out of " ++ show totalBuildsRun ++ " total builds.")
 
 
 {- Build takes (in order):
@@ -89,72 +95,71 @@ buildFromIO input =
         - The best state seen so far (across all previous builds)
         - The full list of words input that we would like to place
         - The numbers of builds left to try
+        - The number of build tried so far
     
     It returns either the bestStateSoFar or the state produced in this build attempt -- whichever has fewer unplaced words.
 -}
-build :: State -> [[Char]] -> [[Char]] -> State -> [[Char]] -> Int -> State
-build state [] prevUnplaced bestStateSoFar initialList toTry
+build :: State -> [[Char]] -> [[Char]] -> State -> [[Char]] -> Int -> Int -> State
+build state [] prevUnplaced bestStateSoFar initialList toTry triedSoFar
     | unplaced == [] = state
     | (sort unplaced) == (sort prevUnplaced) =
-        if (toTry == 0)
+        if (toTry == triedSoFar)
             then
                 newBestState
             else
-                build (State (LetterMap Map.empty) [] rnd n) initialList [] newBestState initialList (toTry - 1)
-    | otherwise = build (State letterMap [] rnd n) unplaced unplaced bestStateSoFar initialList toTry
+                build (State Map.empty [] rnd n triedSoFar) initialList [] newBestState initialList toTry (triedSoFar + 1)
+    | otherwise = build (State letterMap [] rnd n triedSoFar) unplaced unplaced bestStateSoFar initialList toTry triedSoFar
     where
         newBestState = bestOf state bestStateSoFar
-        (State letterMap unplaced rnd n) = state
-build state (h:t) prevUnplaced bestStateSoFar initialList toTry
-    | null innerMap = build (placeFirst state h) t prevUnplaced bestStateSoFar initialList toTry
-    | otherwise = build (tryToPlace state h intersections) t prevUnplaced bestStateSoFar initialList toTry
-    where
+        (State letterMap unplaced rnd n tried) = state
 
-        (State letterMap unplaced rnd n) = state
-        (LetterMap innerMap) = letterMap
+build state (h:t) prevUnplaced bestStateSoFar initialList toTry triedSoFar
+    | null letterMap = build (placeFirst state h) t prevUnplaced bestStateSoFar initialList toTry triedSoFar
+    | otherwise = build (tryToPlace state h intersections) t prevUnplaced bestStateSoFar initialList toTry triedSoFar
+    where
+        (State letterMap unplaced rnd n tried) = state
         intersections = randomizedList (getAllIntersections h letterMap 0) rnd
 
-bestOf state1 state2 =
-    if ((length unplacedWords1) >= (length unplacedWords2))
-        then state2
-        else state1
+-- Given 2 states, return the one with the fewest unplaced words
+bestOf :: State -> State -> State
+bestOf newState oldState =
+    if ((length unplacedWordsNew) < (length unplacedWordsOld))
+        then newState
+        else oldState
     where
-        (State _ unplacedWords1 _ _) = state1
-        (State _ unplacedWords2 _ _) = state2
+        (State _ unplacedWordsNew _ _ _) = newState
+        (State _ unplacedWordsOld _ _ _) = oldState
 
 
 -- Place the first word, horizontally, in any random place where it'll fit
 placeFirst :: State -> [Char] -> State
-placeFirst (State letterMap unplacedWords rnd n) word =
-    (State newLetterMap [] newRandList n)
+placeFirst (State letterMap unplacedWords rnd n triedSoFar) word =
+    (State newLetterMap [] newRandList n triedSoFar)
     where
-        (LetterMap innerMap) = letterMap
         (rand1:rand2:newRandList) = rnd
         randomValidIdx rndDouble str = randIntFromDouble 0 (n - (length str)) rndDouble
-        newLetterMap =
-            (LetterMap (addToPlaced innerMap (randomValidIdx rand1 "", randomValidIdx rand2 word) word Horizontal))
+        newLetterMap = addToPlaced letterMap (randomValidIdx rand1 "", randomValidIdx rand2 word) word Horizontal
 
 
 -- TESTING INTERSECTIONS & PLACING WORDS
 
 tryToPlace :: State -> [Char] -> [Intersection] -> State
 -- if there are no intersections to work with, add the word to the Unplaced Words list
-tryToPlace (State letterMap unplaced rnd n) word [] =
-    (State letterMap (word : unplaced) rnd n)
+tryToPlace (State letterMap unplaced rnd n triedSoFar) word [] =
+    (State letterMap (word : unplaced) rnd n triedSoFar)
 
 -- Go through the intersections unti we find one we can place this word at, either horizontally or vertically
-tryToPlace (State letterMap unplacedWords rnd n) word ((Intersection letter idx (row, col)) : t)
-        | canPlace Horizontal = (State (LetterMap (placeIt Horizontal)) unplacedWords rnd n)
-        | canPlace Vertical = (State (LetterMap (placeIt Vertical)) unplacedWords rnd n)
-        | otherwise = tryToPlace (State letterMap unplacedWords rnd n) word t
+tryToPlace (State letterMap unplacedWords rnd n triedSoFar) word ((Intersection letter idx (row, col)) : t)
+        | canPlace Horizontal = State (placeIt Horizontal) unplacedWords rnd n triedSoFar
+        | canPlace Vertical = State (placeIt Vertical) unplacedWords rnd n triedSoFar
+        | otherwise = tryToPlace (State letterMap unplacedWords rnd n triedSoFar) word t
     where
         canPlace direction = checkPlacement letterMap word (startCell direction) direction n
         startCell direction = getStartCell idx (row, col) direction
-        (LetterMap innerMap) = letterMap
-        placeIt direction = addToPlaced innerMap (startCell direction) word direction
+        placeIt direction = addToPlaced letterMap (startCell direction) word direction
 
 -- Checks whether placing the given word at the given starting point will conflict with any existing words
-checkPlacement :: LetterMap -> [Char] -> (Int, Int) -> Direction -> Int -> Bool
+checkPlacement :: (Map.Map (Int, Int) Char) -> [Char] -> (Int, Int) -> Direction -> Int -> Bool
 checkPlacement letterMap word startCell direction n =
     doesTheWordFit letterMap word startCell direction n &&
     canEachLetterBePlaced letterMap word startCell direction n True
@@ -162,10 +167,10 @@ checkPlacement letterMap word startCell direction n =
 -- Add all the letters in the given word to the board
 -- Word will start at the startCell and be placed in the given orientation
 -- This makes no checks, so make sure that this is a good placement before calling it!
---addToPlaced :: (Map (Int,Int) Char) -> (Int, Int) -> [Char] -> Direction -> (Map (Int,Int) Char)
-addToPlaced innerLetterMap cell [] direction = innerLetterMap
-addToPlaced innerLetterMap cell (letter:restOfWord) direction =
-    Map.insert cell letter (addToPlaced innerLetterMap 
+addToPlaced :: Map.Map (Int, Int) Char -> (Int, Int) -> [Char] -> Direction -> Map.Map (Int, Int) Char
+addToPlaced letterMap cell [] direction = letterMap
+addToPlaced letterMap cell (letter:restOfWord) direction =
+    Map.insert cell letter (addToPlaced letterMap 
                                     (nextCell cell direction)
                                     restOfWord
                                     direction)
@@ -174,30 +179,29 @@ addToPlaced innerLetterMap cell (letter:restOfWord) direction =
 -- GETTING ALL POSSIBLE INTERSECTIONS
 
 -- Get all intersections between this word and any currently placed words
-getAllIntersections :: [Char] -> LetterMap -> Int -> [Intersection]
+getAllIntersections :: [Char] -> (Map.Map (Int, Int) Char) -> Int -> [Intersection]
 getAllIntersections [] letterMap idx = []
 getAllIntersections (h:t) letterMap idx =
     (getLetterIntersections h idx letterMap) ++ getAllIntersections t letterMap (idx+1)
 
 -- Get the coordinates of every cell that currently contains the given letter
-getLetterIntersections :: Char -> Int -> LetterMap -> [Intersection]
+getLetterIntersections :: Char -> Int -> (Map.Map (Int, Int) Char) -> [Intersection]
 getLetterIntersections letter idx letterMap =
     map (Intersection letter idx) (getAllCellsWithLetter letterMap letter)
 
-
+getAllCellsWithLetter :: Eq a1 => Map.Map a2 a1 -> a1 -> [a2]
 getAllCellsWithLetter letterMap letter = matchingCells
         where
-            (LetterMap innerMap) = letterMap
-            (matchingCells, map) = Map.mapAccumWithKey (matchLetter) [] innerMap
+            (matchingCells, map) = Map.mapAccumWithKey (matchLetter) [] letterMap
             matchLetter listSoFar cell charToCheck =
                 if charToCheck == letter
-                    then (cell : listSoFar, innerMap)
-                    else (listSoFar, innerMap)
+                    then (cell : listSoFar, letterMap)
+                    else (listSoFar, letterMap)
 
 
 -- PLACEMENT-CHECKING HELPERS
 
-doesTheWordFit :: Foldable t => LetterMap -> t a -> (Int, Int) -> Direction -> Int -> Bool
+doesTheWordFit :: Foldable t => (Map.Map (Int, Int) Char) -> t a -> (Int, Int) -> Direction -> Int -> Bool
 doesTheWordFit letterMap word startCell direction n =
 {-- The word fits on the board only if:
     1) There is no letter on the board in front of the first letter
@@ -208,7 +212,7 @@ doesTheWordFit letterMap word startCell direction n =
     freeOrOOB (nextCell lastCell direction) letterMap n) where
         lastCell = getLastCell startCell direction word
 
-canEachLetterBePlaced :: LetterMap -> [Char] -> (Int, Int) -> Direction -> Int -> Bool -> Bool
+canEachLetterBePlaced :: (Map.Map (Int, Int) Char) -> [Char] -> (Int, Int) -> Direction -> Int -> Bool -> Bool
 canEachLetterBePlaced letterMap "" cell direction n _ = True
 canEachLetterBePlaced letterMap (thisLetter:nextLetters) cell direction n wasLastCellEmpty =
     {-- A letter can be placed in a cell only if:
@@ -231,7 +235,7 @@ flankingCells (row, col) Vertical = [(row, col-1),(row, col+1)]
 -- BOARD GENERATION & OUTPUT
 
 -- Makes formatted string of size n*n filled with either placed letters or 'empty cell' characters
-makeBoard :: LetterMap -> Int -> Int -> [Char]
+makeBoard :: (Map.Map (Int, Int) Char) -> Int -> Int -> [Char]
 makeBoard letterMap n i
     | i >= totalCells = []
     | otherwise = space : letter : makeBoard letterMap n (i+1)
@@ -250,6 +254,7 @@ printBoard boardString n =
 -- HELPER/UTIL FUNCTIONS
 
 -- get an infinite (lazy) list of random doubles (adapted from Prof. Poole's example)
+makeRandomGen :: IO [Double]
 makeRandomGen =
     do
         rg <- newStdGen
@@ -302,9 +307,8 @@ getLastCell (row, col) Horizontal word = (row, col + (length word) - 1)
 getLastCell (row, col) Vertical word = (row + (length word) - 1, col)
 
 -- Get the letter placed at the given point (or the empty character if nothing is placed there)
-getLetterFromCell :: (Int, Int) -> LetterMap -> Char
-getLetterFromCell cell letterMap = Map.findWithDefault emptyCellCharacter cell innerMap
-    where (LetterMap innerMap) = letterMap
+getLetterFromCell :: (Int, Int) -> (Map.Map (Int, Int) Char) -> Char
+getLetterFromCell cell letterMap = Map.findWithDefault emptyCellCharacter cell letterMap
 
 -- Check if a cell is within the board
 inBounds :: (Ord a, Num a) => (a, a) -> a -> Bool
@@ -323,10 +327,9 @@ nextCell (row, col) Horizontal = (row, col+1)
 nextCell (row, col) Vertical = (row+1, col)
 
 -- Checks if the given cell is either outside the board area OR is currently empty
-freeOrOOB :: (Int, Int) -> LetterMap -> Int -> Bool
+freeOrOOB :: (Int, Int) -> (Map.Map (Int, Int) Char) -> Int -> Bool
 freeOrOOB cell letterMap n = (not (inBounds cell n)) || (isEmpty cell letterMap)
 
 -- Checks if no letter has been placed has been placed in this cell yet
-isEmpty :: (Int, Int) -> LetterMap -> Bool
-isEmpty cell letterMap = not (Map.member cell innerMap)
-    where (LetterMap innerMap) = letterMap
+isEmpty :: (Int, Int) -> (Map.Map (Int, Int) Char) -> Bool
+isEmpty cell letterMap = not (Map.member cell letterMap)
