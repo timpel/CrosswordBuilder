@@ -19,7 +19,6 @@ data State = State
                 [[Char]]                  -- List of words that we haven't been able to place yet
                 [Double]                  -- Infinite list of random doubles 
                 Int                       -- size of the board
-                Int                       -- Builds attempted in order to reach this state
 
 -- Direction of a word on the board can be horizontal or vertical
 data Direction = Horizontal
@@ -57,15 +56,12 @@ startFromFile fileName boardSize timesToTry =
             putStrLn ("Building a puzzle out of " ++ show inputList)
 
             randomDubs <- makeRandomGen
-            let initState = State Map.empty [] randomDubs boardSize 1
-            let prevState = State Map.empty inputList randomDubs boardSize 1
-            let (State letterMap unplacedWords rndDoubles boardSize buildsAttempted) = build initState inputList [] prevState inputList timesToTry 1
+            let initState = State Map.empty [] randomDubs boardSize
+            let prevState = State Map.empty inputList randomDubs boardSize
+            let (State letterMap unplacedWords rndDoubles boardSize) = build initState inputList [] prevState inputList timesToTry
 
             printBoard (makeBoard letterMap boardSize 0) boardSize
             putStrLn("Failed to place " ++ show (length unplacedWords) ++ " words: " ++ show unplacedWords)
-
-            let totalBuildsRun = if (length unplacedWords) == 0 then buildsAttempted else timesToTry
-            putStrLn("This was build #" ++ show buildsAttempted ++ " out of " ++ show totalBuildsRun ++ " total builds.")
 
 -- BUILDING THE CROSSWORD
 
@@ -77,15 +73,12 @@ buildFromIO input =
         putStrLn ("Building a puzzle out of " ++ show inputList)
 
         randomDubs <- makeRandomGen
-        let initState = State Map.empty [] randomDubs boardSize 1
-        let prevState = State Map.empty inputList randomDubs boardSize 1
-        let (State letterMap unplacedWords rndDoubles boardSize buildsAttempted) = build initState inputList [] prevState inputList timesToTry 1
+        let initState = State Map.empty [] randomDubs boardSize
+        let prevState = State Map.empty inputList randomDubs boardSize
+        let (State letterMap unplacedWords rndDoubles boardSize) = build initState inputList [] prevState inputList timesToTry
 
         printBoard (makeBoard letterMap boardSize 0) boardSize
         putStrLn("Failed to place " ++ show (length unplacedWords) ++ " words: " ++ show unplacedWords)
-
-        let totalBuildsRun = if (length unplacedWords) == 0 then buildsAttempted else timesToTry
-        putStrLn("This was build #" ++ show buildsAttempted ++ " out of " ++ show totalBuildsRun ++ " total builds.")
 
 
 {- Build takes (in order):
@@ -95,29 +88,28 @@ buildFromIO input =
         - The best state seen so far (across all previous builds)
         - The full list of words input that we would like to place
         - The numbers of builds left to try
-        - The number of build tried so far
     
     It returns either the bestStateSoFar or the state produced in this build attempt -- whichever has fewer unplaced words.
 -}
-build :: State -> [[Char]] -> [[Char]] -> State -> [[Char]] -> Int -> Int -> State
-build state [] prevUnplaced bestStateSoFar initialList toTry triedSoFar
+build :: State -> [[Char]] -> [[Char]] -> State -> [[Char]] -> Int -> State
+build state [] prevUnplaced bestStateSoFar initialList toTry
     | unplaced == [] = state
     | (sort unplaced) == (sort prevUnplaced) =
-        if (toTry == triedSoFar)
+        if (toTry == 0)
             then
                 newBestState
             else
-                build (State Map.empty [] rnd n triedSoFar) initialList [] newBestState initialList toTry (triedSoFar + 1)
-    | otherwise = build (State letterMap [] rnd n triedSoFar) unplaced unplaced bestStateSoFar initialList toTry triedSoFar
+                build (State Map.empty [] rnd n) initialList [] newBestState initialList (toTry - 1)
+    | otherwise = build (State letterMap [] rnd n) unplaced unplaced bestStateSoFar initialList toTry
     where
         newBestState = bestOf state bestStateSoFar
-        (State letterMap unplaced rnd n tried) = state
+        (State letterMap unplaced rnd n) = state
 
-build state (h:t) prevUnplaced bestStateSoFar initialList toTry triedSoFar
-    | null letterMap = build (placeFirst state h) t prevUnplaced bestStateSoFar initialList toTry triedSoFar
-    | otherwise = build (tryToPlace state h intersections) t prevUnplaced bestStateSoFar initialList toTry triedSoFar
+build state (h:t) prevUnplaced bestStateSoFar initialList toTry
+    | null letterMap = build (placeFirst state h) t prevUnplaced bestStateSoFar initialList toTry
+    | otherwise = build (tryToPlace state h intersections) t prevUnplaced bestStateSoFar initialList toTry
     where
-        (State letterMap unplaced rnd n tried) = state
+        (State letterMap unplaced rnd n) = state
         intersections = randomizedList (getAllIntersections h letterMap 0) rnd
 
 -- Given 2 states, return the one with the fewest unplaced words
@@ -127,14 +119,14 @@ bestOf newState oldState =
         then newState
         else oldState
     where
-        (State _ unplacedWordsNew _ _ _) = newState
-        (State _ unplacedWordsOld _ _ _) = oldState
+        (State _ unplacedWordsNew _ _) = newState
+        (State _ unplacedWordsOld _ _) = oldState
 
 
 -- Place the first word, horizontally, in any random place where it'll fit
 placeFirst :: State -> [Char] -> State
-placeFirst (State letterMap unplacedWords rnd n triedSoFar) word =
-    (State newLetterMap [] newRandList n triedSoFar)
+placeFirst (State letterMap unplacedWords rnd n) word =
+    (State newLetterMap [] newRandList n)
     where
         (rand1:rand2:newRandList) = rnd
         randomValidIdx rndDouble str = randIntFromDouble 0 (n - (length str)) rndDouble
@@ -145,14 +137,14 @@ placeFirst (State letterMap unplacedWords rnd n triedSoFar) word =
 
 tryToPlace :: State -> [Char] -> [Intersection] -> State
 -- if there are no intersections to work with, add the word to the Unplaced Words list
-tryToPlace (State letterMap unplaced rnd n triedSoFar) word [] =
-    (State letterMap (word : unplaced) rnd n triedSoFar)
+tryToPlace (State letterMap unplaced rnd n) word [] =
+    (State letterMap (word : unplaced) rnd n)
 
 -- Go through the intersections unti we find one we can place this word at, either horizontally or vertically
-tryToPlace (State letterMap unplacedWords rnd n triedSoFar) word ((Intersection letter idx (row, col)) : t)
-        | canPlace Horizontal = State (placeIt Horizontal) unplacedWords rnd n triedSoFar
-        | canPlace Vertical = State (placeIt Vertical) unplacedWords rnd n triedSoFar
-        | otherwise = tryToPlace (State letterMap unplacedWords rnd n triedSoFar) word t
+tryToPlace (State letterMap unplacedWords rnd n) word ((Intersection letter idx (row, col)) : t)
+        | canPlace Horizontal = State (placeIt Horizontal) unplacedWords rnd n
+        | canPlace Vertical = State (placeIt Vertical) unplacedWords rnd n
+        | otherwise = tryToPlace (State letterMap unplacedWords rnd n) word t
     where
         canPlace direction = checkPlacement letterMap word (startCell direction) direction n
         startCell direction = getStartCell idx (row, col) direction
