@@ -14,15 +14,15 @@ import CrosswordConstants
 -- DATA TYPES
 
 {- The State of the Crossword. Contains (in order):
-    - A map of boards coordinates to the letter placed at that coordinate.
+    - A map of board coordinates to the letter placed at that coordinate.
     - A list of unplaced words.
     - An infinite list of random doubles.
     - The size of the board (an n x n board).
 -}
-data State = State 
+data State = State
                 (Map.Map (Int, Int) Char) -- Map of (x,y) coordinates -> the letter in that cell
                 [[Char]]                  -- List of words that we haven't been able to place yet
-                [Double]                  -- Infinite list of random doubles 
+                [Double]                  -- Infinite list of random doubles
                 Int                       -- size of the board
 
 -- The direction of a word on the board. Can be horizontal or vertical.
@@ -69,7 +69,7 @@ startFromFile fileName boardSize timesToTry =
             let invalidWords = rawInputList \\ inputList
 
             printInvalid invalidWords
-            
+
             putStrLn ("Building a puzzle out of " ++ show inputList)
 
             randomDubs <- makeRandomGen
@@ -113,7 +113,7 @@ buildFromIO input =
         - The numbers of builds left to try
     - It is called recursively in several different ways:
         - If there are still words left to place, an attempt is made to place the word.
-            - If the word is placed, then placedLetters is updated.
+            - If the word is placed, then letterMap is updated.
             - If the word is not placed, then the list of unplaced words is updated.
             - Either way, build is recursively called with the remaining list of words to place.
         - When the list of words left to place for this build is empty:
@@ -169,14 +169,14 @@ placeFirst (State letterMap unplacedWords rnd boardSize) word =
         - the current state,
         - the word to place,
         - a list of intersections for the word to place.
-    - Returns: the updated state (with either placedLetters or unplacedWords updated).
+    - Returns: the updated state (with either letterMap or unplacedWords updated).
 -}
 tryToPlace :: State -> [Char] -> [Intersection] -> State
 -- if there are no intersections to work with, add the word to the Unplaced Words list
 tryToPlace (State letterMap unplaced rnd boardSize) word [] =
     (State letterMap (word : unplaced) rnd boardSize)
 
--- Go through the intersections unti we find one we can place this word at, either horizontally or vertically
+-- Go through the intersections until we find one we can place this word at, either horizontally or vertically
 tryToPlace (State letterMap unplacedWords rnd boardSize) word ((Intersection letter idx (row, col)) : t)
         | canPlace Horizontal = State (placeIt Horizontal) unplacedWords rnd boardSize
         | canPlace Vertical = State (placeIt Vertical) unplacedWords rnd boardSize
@@ -212,7 +212,7 @@ checkPlacement letterMap word startCell direction boardSize =
 addToPlaced :: Map.Map (Int, Int) Char -> (Int, Int) -> [Char] -> Direction -> Map.Map (Int, Int) Char
 addToPlaced letterMap cell [] direction = letterMap
 addToPlaced letterMap cell (letter:restOfWord) direction =
-    Map.insert cell letter (addToPlaced letterMap 
+    Map.insert cell letter (addToPlaced letterMap
                                     (nextCell cell direction)
                                     restOfWord
                                     direction)
@@ -220,17 +220,35 @@ addToPlaced letterMap cell (letter:restOfWord) direction =
 
 -- GETTING ALL POSSIBLE INTERSECTIONS
 
--- Get all intersections between this word and any currently placed words
+{- Get all intersections between this word and any currently placed words.
+    - Parameters:
+        - the word being placed,
+        - the letters placed on the board so far,
+        - the index of the letter currently being processed in the word being placed.
+    - Returns: A list of all of the intersections on the board for the word being placed.
+-}
 getAllIntersections :: [Char] -> (Map.Map (Int, Int) Char) -> Int -> [Intersection]
 getAllIntersections [] letterMap idx = []
 getAllIntersections (h:t) letterMap idx =
     (getLetterIntersections h idx letterMap) ++ getAllIntersections t letterMap (idx+1)
 
--- Get the coordinates of every cell that currently contains the given letter
+{- Get all intersections between the given letter and any currently placed letters.
+    - Parameters:
+        - the letter being placed,
+        - the index of the letter in the word being placed,
+        - the letters placed on the board so far.
+    - Returns: A list of all of the intersections on the board for the letter being placed.
+-}
 getLetterIntersections :: Char -> Int -> (Map.Map (Int, Int) Char) -> [Intersection]
 getLetterIntersections letter idx letterMap =
     map (Intersection letter idx) (getAllCellsWithLetter letterMap letter)
 
+{- Get the coordinates of every cell that currently contains the given letter.
+    - Parameters:
+        - the letters placed on the board so far,
+        - the letter being placed.
+    - Returns: A list the coordinates of every cell that currently contains the given letter.
+-}
 getAllCellsWithLetter :: Eq a1 => Map.Map a2 a1 -> a1 -> [a2]
 getAllCellsWithLetter letterMap letter = matchingCells
         where
@@ -243,40 +261,70 @@ getAllCellsWithLetter letterMap letter = matchingCells
 
 -- PLACEMENT-CHECKING HELPERS
 
-doesTheWordFit :: Foldable t => (Map.Map (Int, Int) Char) -> t a -> (Int, Int) -> Direction -> Int -> Bool
+{- Determines whether the given word fits on the board in the indicated location.
+    - Parameters:
+        - the letters placed on the board so far,
+        - the word being placed,
+        - the starting coordinates of the word,
+        - the direction of the word,
+        - the board size.
+    - The word fits on the board only if:
+        1) There is no letter on the board in front of the first letter
+        2) There is no letter on the board after the last letter
+        3) Both the first and last letter are in the bounds of the board
+    - Returns: True if the word fits on the board where indicated.
+-}
+doesTheWordFit :: (Map.Map (Int, Int) Char) -> [Char] -> (Int, Int) -> Direction -> Int -> Bool
 doesTheWordFit letterMap word startCell direction boardSize =
-{-- The word fits on the board only if:
-    1) There is no letter on the board in front of the first letter
-    2) There is no letter on the board after the last letter
-    3) Both the first and last letter are in the bounds of the board--}
     (inBounds startCell boardSize && inBounds lastCell boardSize &&
     freeOrOOB (prevCell startCell direction) letterMap boardSize &&
     freeOrOOB (nextCell lastCell direction) letterMap boardSize) where
         lastCell = getLastCell startCell direction word
 
-canEachLetterBePlaced :: (Map.Map (Int, Int) Char) -> [Char] -> (Int, Int) -> Direction -> Int -> Bool -> Bool
-canEachLetterBePlaced letterMap "" cell direction boardSize _ = True
-canEachLetterBePlaced letterMap (thisLetter:nextLetters) cell direction boardSize wasLastCellEmpty =
-    {-- A letter can be placed in a cell only if:
+{- Determines whether each letter in the word has a valid placement in the indicated word location.
+    - Parameters:
+        - the letters placed on the board so far,
+        - the word being placed,
+        - the starting coordinates of the word,
+        - the direction of the word,
+        - the board size,
+        - whether the last cell considered was empty.
+    - A letter can be placed in a cell only if:
         1) The cell in the bounds of the board
         2) The cell is either
             i) empty AND the "flanking cells" (aka above & below for a horizontal word, left & right for a vertical one) are empty
-            ii) OR the cell is not empty but its letter is the same as the given letter --}
+            ii) OR the cell is not empty but its letter is the same as the given letter
+    - Returns: True if each letter has a valid placement.
+-}
+canEachLetterBePlaced :: (Map.Map (Int, Int) Char) -> [Char] -> (Int, Int) -> Direction -> Int -> Bool -> Bool
+canEachLetterBePlaced letterMap "" cell direction boardSize _ = True
+canEachLetterBePlaced letterMap (thisLetter:nextLetters) cell direction boardSize wasLastCellEmpty =
     (inBounds cell boardSize) &&
     ((isEmpty cell letterMap && all (\ cell -> freeOrOOB cell letterMap boardSize) (flankingCells cell direction))
         || ((getLetterFromCell cell letterMap) == thisLetter) && wasLastCellEmpty) &&
     canEachLetterBePlaced letterMap nextLetters (nextCell cell direction) direction boardSize (isEmpty cell letterMap)
 
--- Gets the cells above & below this one for Horizontal words, or to the left & right for Vertical words
+{- Determines the flanking cells for the given cell.
+    - Flanking cells are the cells above & below the given cell for Horizontal words, or to the left & right for Vertical words.
+    - Parameters:
+        - the coordinates of the cell,
+        - the direction of the word.
+    - Returns: A list of the coordinates of the flanking cells.
+-}
 flankingCells :: (Num a1, Num a2) => (a1, a2) -> Direction -> [(a1, a2)]
 flankingCells (row, col) Horizontal = [(row-1, col),(row+1, col)]
 flankingCells (row, col) Vertical = [(row, col-1),(row, col+1)]
 
 
-
 -- BOARD GENERATION & OUTPUT
 
--- Makes formatted string of size n*n filled with either placed letters or 'empty cell' characters
+{- Makes a formatted string of size n*n filled with either placed letters or 'empty cell' characters.
+    - Parameters:
+        - the letters placed on the board,
+        - the size of the board,
+        - the index of the board position currently being processed.
+    - Returns: The formatted representation of the board.
+-}
 makeBoard :: (Map.Map (Int, Int) Char) -> Int -> Int -> [Char]
 makeBoard letterMap n i
     | i >= totalCells = []
@@ -285,7 +333,11 @@ makeBoard letterMap n i
         totalCells = n*n
         (space, letter) = (' ', (getLetterFromCell (i `div` n, i `mod` n) letterMap))
 
--- Prints out the board, one row of size n at a time
+{- Prints out the board, one row of size n at a time.
+    - Parameters:
+        - the board string,
+        - the size of the board.
+-}
 printBoard :: [Char] -> Int -> IO ()
 printBoard "" n = putStrLn("")
 printBoard boardString n =
@@ -295,8 +347,13 @@ printBoard boardString n =
 
 -- HELPER/UTIL FUNCTIONS
 
--- bestOf returns the better of two states.
--- One state is considered better than another if the first placed more words than the second.
+{- Get the better of two given states.
+    - One state is considered better than another if the first placed more words than the second.
+    - Parameters:
+        - a state,
+        - a second state.
+    - Returns: The better of the two given states.
+-}
 bestOf :: State -> State -> State
 bestOf newState oldState =
     if ((length unplacedWordsNew) < (length unplacedWordsOld))
@@ -305,16 +362,24 @@ bestOf newState oldState =
     where
         (State _ unplacedWordsNew _ _) = newState
         (State _ unplacedWordsOld _ _) = oldState
-    
 
--- get an infinite (lazy) list of random doubles (adapted from Prof. Poole's example)
+{- Get an infinite list of random doubles (adapted from Prof. Poole's example).
+    - Returns: an infinite list of random doubles.
+-}
 makeRandomGen :: IO [Double]
 makeRandomGen =
     do
         rg <- newStdGen
         return (randoms rg :: [Double])
 
--- Range includes loInt but excludes hiInt
+{- Get a random Int in a specified range from a random Double.
+    - Parameters:
+        - a lower bound on the output range,
+        - an upper bound on the output range,
+        - a random double in the range 0-1.
+    - The range includes the lower bound Int but excludes the upper bound Int.
+    - Returns: A random Int in the specified range.
+-}
 randIntFromDouble :: Int -> Int -> Double -> Int
 randIntFromDouble loInt hiInt rndDouble =
     floor ((hi-lo) * rndDouble + lo)
@@ -322,22 +387,43 @@ randIntFromDouble loInt hiInt rndDouble =
         hi = fromIntegral hiInt
         lo = fromIntegral loInt
 
+{- Randomizes the order of a list (to a reasonable extent).
+    - Parameters:
+        - a list of elements to randomize,
+        - an infinite list of random Doubles.
+    - Returns: a list of the input elements now in a random order.
+-}
 -- Needs infinite list of doubles
 randomizedList :: [a] -> [Double] -> [a]
 randomizedList [] _ = []
 randomizedList (h:t) (d:rd) = randomInsert h (randomizedList t rd) d
 
+{- Inserts an element into a random location in the given list.
+    - Parameters:
+        - an element to insert,
+        - a list of elements,
+        - an infinite list of random Doubles.
+    - Returns: a list of elements with the element to insert randomly inserted.
+-}
 randomInsert :: a -> [a] -> Double -> [a]
 randomInsert e [] d = [e]
 randomInsert e l d = before ++ [e] ++ after
   where (before, after) = splitAt (randIntFromDouble 0 ((length l) + 1) d) l
 
-
+{- Check if a given word is of valid length and has all valid characters.
+    - Parameters:
+        - the board size,
+        - the word.
+    - Returns: True if the word is valid.
+-}
 -- check if a given word is of valid length and has all valid characters
 validWord :: Int -> [Char] -> Bool
 validWord boardSize word = (validLength boardSize word) && (validChars word)
 
--- print all the words in the list, with messages for the user
+{- Print all of the invalid words, with messages for the user.
+    - Parameters:
+        - the invalid words.
+-}
 printInvalid :: (Foldable t, Show (t a)) => t a -> IO ()
 printInvalid invalidWords =
     if (not (null invalidWords))
@@ -349,41 +435,81 @@ printInvalid invalidWords =
                 putStrLn ("Input file is valid - well done!")
 
 
--- Given a point, its index in a word, the word itself, and the direction of the word,
--- returns the point where the first letter of that word should be
+{- Gets the starting cell for a word.
+    - Parameters:
+        - the index of the given coordinates in a word,
+        - the given coordinates of a cell,
+        - the direction of the word.
+    - Returns: The coordinates where the first letter of the word should be.
+-}
 getStartCell :: Num a => a -> (a, a) -> Direction -> (a, a)
 getStartCell wordIndex (row, col) Horizontal = (row, col-wordIndex)
 getStartCell wordIndex (row, col) Vertical = (row - wordIndex, col)
 
--- Get the cell where the last letter of this word will be placed given its starting cell
+{- Gets the last cell for a word.
+    - Parameters:
+        - the starting cell coordinates of the word,
+        - the direction of the word,
+        - the word.
+    - Returns: The coordinates where the last letter of this word will be placed.
+-}
 getLastCell :: Foldable t => (Int, Int) -> Direction -> t a -> (Int, Int)
 getLastCell (row, col) Horizontal word = (row, col + (length word) - 1)
 getLastCell (row, col) Vertical word = (row + (length word) - 1, col)
 
--- Get the letter placed at the given point (or the empty character if nothing is placed there)
+{- Gets the letter in a given cell.
+    - Parameters:
+        - cell coordinates,
+        - the letters placed on the board.
+    - Returns: The character at the given coordinates (or the empty character if nothing is placed there).
+-}
 getLetterFromCell :: (Int, Int) -> (Map.Map (Int, Int) Char) -> Char
 getLetterFromCell cell letterMap = Map.findWithDefault emptyCellCharacter cell letterMap
 
--- Check if a cell is within the board
+{- Check if a cell is within the bounds of the board.
+    - Parameters:
+        - cell coordinates,
+        - the size of the board.
+    - Returns: True of the cell is on the board.
+-}
 inBounds :: (Ord a, Num a) => (a, a) -> a -> Bool
 inBounds (row, col) boardSize = (row>=0) && (row<boardSize) && (col>=0) && (col<boardSize)
 
--- Returns the cell to the left of this one if Direction=Horizontal,
--- Or the cell above it if Direction=Vertical
+{- Gets the previous cell.
+    - Parameters:
+        - cell coordinates,
+        - direction.
+    - Returns: the cell to the left of this one if Direction=Horizontal, or the cell above it if Direction=Vertical.
+-}
 prevCell :: (Num b, Num a) => (a, b) -> Direction -> (a, b)
 prevCell (row, col) Horizontal = (row, col-1)
 prevCell (row, col) Vertical = (row-1, col)
 
--- Returns the cell to the right of this one if Direction=Horizontal,
--- Or the cell below it if Direction=Vertical
+{- Gets the next cell.
+    - Parameters:
+        - cell coordinates,
+        - direction.
+    - Returns: the cell to the right of this one if Direction=Horizontal, or the cell below it if Direction=Vertical.
+-}
 nextCell :: (Num b, Num a) => (a, b) -> Direction -> (a, b)
 nextCell (row, col) Horizontal = (row, col+1)
 nextCell (row, col) Vertical = (row+1, col)
 
--- Checks if the given cell is either outside the board area OR is currently empty
+{- Checks if the given cell is either outside the board area OR is currently empty
+    - Parameters:
+        - cell coordinates,
+        - the letters placed on the board,
+        - the board size.
+    - Returns: True if the cell is out of bounds or empty.
+-}
 freeOrOOB :: (Int, Int) -> (Map.Map (Int, Int) Char) -> Int -> Bool
 freeOrOOB cell letterMap boardSize = (not (inBounds cell boardSize)) || (isEmpty cell letterMap)
 
--- Checks if no letter has been placed has been placed in this cell yet
+{- Checks if the given cell is currently empty.
+    - Parameters:
+        - cell coordinates,
+        - the letters placed on the board.
+    - Returns: True if the cell is empty.
+-}
 isEmpty :: (Int, Int) -> (Map.Map (Int, Int) Char) -> Bool
 isEmpty cell letterMap = not (Map.member cell letterMap)

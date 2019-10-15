@@ -9,14 +9,16 @@ import Data.Maybe
 --OUR MODULES
 import CrosswordConstants
 
--- the InputState is the list of words the user input,
--- the size of board they want,
--- and the number of builds they want to attempts
+{- The InputState represents user input. Contains (in order):
+    - The list of words to place on the board,
+    - The size of board they want,
+    - The number of builds they want to attempts.
+-}
 data InputState = InputState [[Char]] Int Int
 
 -- INPUT VALIDATION CHECKS
 nNotNum Nothing = True
-nNotNum _ = False 
+nNotNum _ = False
 invalidBoardSize n = (n < minBoardSize) || (n > maxBoardSize)
 invalidAttemptNumber n = (n <= 0) || (n > maxAttemptNumber)
 validLength n word = (len <= n && len >= minWordLength) where len = length word
@@ -25,6 +27,12 @@ validChars (h:t) = (h `elem` validCharSet) && validChars t
 
 -- HELPERS
 
+{- Ordering function for sorting lists by length.
+    - Parameters:
+        - a String,
+        - a second String.
+    - Returns: an Ordering.
+-}
 -- Ordering function for sorting lists by length
 compareLength :: String -> String -> Ordering
 compareLength a b
@@ -34,10 +42,11 @@ compareLength a b
           l2 = length b
 
 
-
 -- MAIN FUNCTIONS
 
--- get board size and word list from the user
+{- Get all user inputs.
+    - Returns: an InputState.
+-}
 getUserInput :: IO InputState
 getUserInput =
     do
@@ -60,7 +69,11 @@ getUserInput =
                     else
                         getDesiredAttempts (fromMaybe (-1) n)
 
--- Accepts a board size and gets the number of attempts the user wants to try
+{- Gets the number of attempts the user wants to try.
+    - Parameters:
+        - the board size (to pass through).
+    - Returns: an InputState.
+-}
 getDesiredAttempts :: Int -> IO InputState
 getDesiredAttempts boardSize =
     do
@@ -81,9 +94,15 @@ getDesiredAttempts boardSize =
                             putStrLn ("Please choose a number of attempts between 0 and " ++ show maxAttemptNumber ++".")
                             getDesiredAttempts boardSize
                     else
-                        getWords boardSize (fromMaybe (-1) n) []               
+                        getWords boardSize (fromMaybe (-1) n) []
 
-
+{- Gets the words the user wants added to the crossword.
+    - Parameters:
+        - the board size (to pass through),
+        - the number of build attempts (to pass through),
+        - a list of words.
+    - Returns: an InputState.
+-}
 getWords :: Int -> Int -> [[Char]] -> IO InputState
 getWords boardSize attempts words =
     do
@@ -104,5 +123,5 @@ getWords boardSize attempts words =
                 do
                     putStrLn("\"" ++word++ "\" is not a valid word (only letters a-z are allowed)")
                     getWords boardSize attempts words
-        
+
         else getWords boardSize attempts ((map toUpper word):words)
