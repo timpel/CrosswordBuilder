@@ -141,11 +141,11 @@ build state [] prevUnplaced bestStateSoFar initialList toTry
         (State letterMap unplaced rnd boardSize) = state
 
 build state (h:t) prevUnplaced bestStateSoFar initialList toTry
-    | null letterMap = build (placeFirst state h) t prevUnplaced bestStateSoFar initialList toTry
+    | null letterMap = build (placeFirst (State letterMap unplaced rnd boardSize) h) t prevUnplaced bestStateSoFar initialList toTry
     | otherwise = build (tryToPlace state h intersections) t prevUnplaced bestStateSoFar initialList toTry
     where
-        (State letterMap unplaced rnd boardSize) = state
-        intersections = randomizedList (getAllIntersections h letterMap 0) rnd
+        (State letterMap unplaced (d:rnd) boardSize) = state
+        intersections = rotateList (getAllIntersections h letterMap 0) d
 
 -- PLACING WORDS
 
@@ -409,6 +409,18 @@ randomInsert :: a -> [a] -> Double -> [a]
 randomInsert e [] d = [e]
 randomInsert e l d = before ++ [e] ++ after
   where (before, after) = splitAt (randIntFromDouble 0 ((length l) + 1) d) l
+
+{- Rotates a list, to mimic randomization.
+    - This does not really randomize the list, but is more efficient that proper randomization and suffices to vary selection order.
+    - Parameters:
+        - a list of elements to rotate,
+        - a random Double.
+    - Returns: a rotated list.
+-}
+rotateList :: [a] -> Double -> [a]
+rotateList [] _ = []
+rotateList lst d = after ++ before
+  where (before, after) = splitAt (randIntFromDouble 0 ((length lst) + 1) d) lst
 
 {- Check if a given word is of valid length and has all valid characters.
     - Parameters:
